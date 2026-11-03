@@ -143,6 +143,10 @@ namespace QuanLyGiangVien
                 System.ComponentModel.LicenseUsageMode.Designtime;
         }
 
+        private void dgvTeachingWorkload_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+        }
+
         // Giữ nguyên các event handler do WinForms Designer đang tham chiếu.
         private void lblNamHoc_Click(object sender, EventArgs e) { }
         private void cboNamHoc_SelectedIndexChanged(object sender, EventArgs e) { }

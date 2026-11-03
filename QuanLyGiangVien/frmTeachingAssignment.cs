@@ -1,45 +1,231 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
 using System.Data;
-using System.Drawing;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
+using System.Transactions;
 using System.Windows.Forms;
 
 namespace QuanLyGiangVien
 {
     public partial class frmTeachingAssignment : Form
     {
+        private const int DinhMucTietMoiHocKy = 300;
+        private bool dangNap;
+
         public frmTeachingAssignment()
         {
             InitializeComponent();
+            Load += frmTeachingAssignment_Load;
+            cboAcademicYear.SelectedIndexChanged += BoLocThayDoi;
+            cboSemester.SelectedIndexChanged += BoLocThayDoi;
+            btnAssign.Click += btnAssign_Click;
         }
 
-        private void lblLecturer_Click(object sender, EventArgs e)
+        private void frmTeachingAssignment_Load(object sender, EventArgs e)
         {
-
+            if (LaDesignTime()) return;
+            try
+            {
+                dangNap = true;
+                using (var db = new QuanLyGiangVienDataContext())
+                {
+                    cboAcademicYear.DataSource = db.NAM_HOCs.Where(x => x.TrangThai).OrderByDescending(x => x.TuNam)
+                        .Select(x => new { x.MaNamHoc, x.TenNamHoc }).ToList();
+                    cboAcademicYear.DisplayMember = "TenNamHoc";
+                    cboAcademicYear.ValueMember = "MaNamHoc";
+                    cboSemester.DataSource = db.HOC_Kies.OrderBy(x => x.MaHocKy)
+                        .Select(x => new { x.MaHocKy, x.TenHocKy }).ToList();
+                    cboSemester.DisplayMember = "TenHocKy";
+                    cboSemester.ValueMember = "MaHocKy";
+                    cboLecturer.DataSource = db.GIANG_VIENs.Where(x => x.TrangThai).OrderBy(x => x.HoTen)
+                        .Select(x => new { x.MaGV, TenHienThi = x.MaGV + " - " + x.HoTen }).ToList();
+                    cboLecturer.DisplayMember = "TenHienThi";
+                    cboLecturer.ValueMember = "MaGV";
+                }
+                dangNap = false;
+                LoadCourseClasses();
+                LoadAssignments();
+            }
+            catch (Exception ex)
+            {
+                dangNap = false;
+                ShowError("Không tải được dữ liệu. Hãy kiểm tra SQL Server và chuỗi kết nối trong App.config.", ex);
+            }
         }
 
-        private void cboLecturer_SelectedIndexChanged(object sender, EventArgs e)
+        private void BoLocThayDoi(object sender, EventArgs e)
         {
-
+            if (dangNap || LaDesignTime()) return;
+            LoadCourseClasses();
+            LoadAssignments();
         }
 
-        private void lblPeriods_Click(object sender, EventArgs e)
+        private void LoadCourseClasses()
         {
-
+            if (!DaChonNamHocVaHocKy()) return;
+            try
+            {
+                int maNamHoc = Convert.ToInt32(cboAcademicYear.SelectedValue);
+                int maHocKy = Convert.ToInt32(cboSemester.SelectedValue);
+                using (var db = new QuanLyGiangVienDataContext())
+                {
+                    dangNap = true;
+                    cboCourseClass.DataSource = db.LOP_HOC_PHANs
+                        .Where(x => x.TrangThai && x.MaNamHoc == maNamHoc && x.MaHocKy == maHocKy)
+                        .OrderBy(x => x.TenLop)
+                        .Select(x => new { x.MaLopHP, TenHienThi = x.TenLop + " - " + x.HOC_PHAN.TenHocPhan })
+                        .ToList();
+                    cboCourseClass.DisplayMember = "TenHienThi";
+                    cboCourseClass.ValueMember = "MaLopHP";
+                    dangNap = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                dangNap = false;
+                ShowError("Không tải được lớp học phần.", ex);
+            }
         }
 
-        private void lblAssignmentList_Click(object sender, EventArgs e)
+        private void LoadAssignments()
         {
-
+            if (!DaChonNamHocVaHocKy()) return;
+            try
+            {
+                int maNamHoc = Convert.ToInt32(cboAcademicYear.SelectedValue);
+                int maHocKy = Convert.ToInt32(cboSemester.SelectedValue);
+                using (var db = new QuanLyGiangVienDataContext())
+                {
+                    var rows = db.PHAN_CONG_GIANG_DAYs
+                        .Where(x => x.LOP_HOC_PHAN.MaNamHoc == maNamHoc && x.LOP_HOC_PHAN.MaHocKy == maHocKy)
+                        .OrderBy(x => x.GIANG_VIEN.HoTen)
+                        .Select(x => new {
+                            x.MaPhanCong,
+                            GiangVien = x.GIANG_VIEN.HoTen,
+                            LopHocPhan = x.LOP_HOC_PHAN.TenLop,
+                            HocKy = x.LOP_HOC_PHAN.HOC_KY.TenHocKy,
+                            x.SoTiet
+                        })
+                        .ToList();
+                    dgvAssignments.Rows.Clear();
+                    foreach (var row in rows)
+                        dgvAssignments.Rows.Add(row.MaPhanCong, row.GiangVien, row.LopHocPhan,
+                            row.HocKy, row.SoTiet, "Đã phân công");
+                }
+            }
+            catch (Exception ex) { ShowError("Không tải được danh sách phân công.", ex); }
         }
 
-        private void pnlAssignmentInfo_Paint(object sender, PaintEventArgs e)
+        private void btnAssign_Click(object sender, EventArgs e)
         {
+            if (!DaChonNamHocVaHocKy() || cboLecturer.SelectedValue == null || cboCourseClass.SelectedValue == null)
+            {
+                MessageBox.Show("Vui lòng chọn năm học, học kỳ, giảng viên và lớp học phần.", "Thiếu thông tin",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            int soTiet;
+            if (!int.TryParse(txtPeriods.Text.Trim(), out soTiet) || soTiet <= 0)
+            {
+                MessageBox.Show("Số tiết phải là số nguyên lớn hơn 0.", "Dữ liệu chưa hợp lệ",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                txtPeriods.Focus();
+                return;
+            }
 
+            int maNamHoc = Convert.ToInt32(cboAcademicYear.SelectedValue);
+            int maHocKy = Convert.ToInt32(cboSemester.SelectedValue);
+            int maGV = Convert.ToInt32(cboLecturer.SelectedValue);
+            int maLopHP = Convert.ToInt32(cboCourseClass.SelectedValue);
+            try
+            {
+                var options = new TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.Serializable };
+                using (var scope = new TransactionScope(TransactionScopeOption.Required, options))
+                using (var db = new QuanLyGiangVienDataContext())
+                {
+                    var giangVien = db.GIANG_VIENs.SingleOrDefault(x => x.MaGV == maGV);
+                    var lopHocPhan = db.LOP_HOC_PHANs.SingleOrDefault(x => x.MaLopHP == maLopHP);
+                    if (giangVien == null || !giangVien.TrangThai)
+                        throw new InvalidOperationException("Giảng viên không tồn tại hoặc đang ngừng hoạt động.");
+                    if (lopHocPhan == null || !lopHocPhan.TrangThai || lopHocPhan.MaNamHoc != maNamHoc || lopHocPhan.MaHocKy != maHocKy)
+                        throw new InvalidOperationException("Lớp học phần không hợp lệ cho năm học và học kỳ đã chọn.");
+                    if (db.PHAN_CONG_GIANG_DAYs.Any(x => x.MaGV == maGV && x.MaLopHP == maLopHP))
+                        throw new InvalidOperationException("Giảng viên này đã được phân công lớp học phần đã chọn.");
+
+                    string tenHocPhan = lopHocPhan.HOC_PHAN.TenHocPhan;
+                    bool dungChuyenMon = db.GIANG_VIEN_CHUYEN_MONs.Where(x => x.MaGV == maGV && x.CHUYEN_MON.TrangThai)
+                        .Select(x => x.CHUYEN_MON.TenChuyenMon).ToList()
+                        .Any(tenChuyenMon => ChuyenMonTrungHocPhan(tenChuyenMon, tenHocPhan));
+                    if (!dungChuyenMon)
+                        throw new InvalidOperationException("Giảng viên chưa có chuyên môn phù hợp với học phần '" + tenHocPhan + "'.");
+
+                    int tongTietDaPhanCong = db.PHAN_CONG_GIANG_DAYs
+                        .Where(x => x.MaGV == maGV && x.LOP_HOC_PHAN.MaNamHoc == maNamHoc && x.LOP_HOC_PHAN.MaHocKy == maHocKy)
+                        .Sum(x => (int?)x.SoTiet) ?? 0;
+                    if (tongTietDaPhanCong + soTiet > DinhMucTietMoiHocKy)
+                        throw new InvalidOperationException("Phân công này làm tổng số tiết là " + (tongTietDaPhanCong + soTiet)
+                            + ", vượt định mức " + DinhMucTietMoiHocKy + " tiết/học kỳ.");
+
+                    db.PHAN_CONG_GIANG_DAYs.InsertOnSubmit(new PHAN_CONG_GIANG_DAY
+                    {
+                        MaGV = maGV,
+                        MaLopHP = maLopHP,
+                        SoTiet = soTiet,
+                        NgayBatDau = null,
+                        NgayKetThuc = null,
+                        GhiChu = "Phân công từ frmTeachingAssignment"
+                    });
+                    db.SubmitChanges();
+                    scope.Complete();
+                }
+                MessageBox.Show("Đã phân công giảng dạy thành công.", "Thành công",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                txtPeriods.Clear();
+                LoadAssignments();
+            }
+            catch (InvalidOperationException ex)
+            {
+                MessageBox.Show(ex.Message, "Không thể phân công", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            catch (Exception ex) { ShowError("Không lưu được phân công.", ex); }
         }
+
+        private bool DaChonNamHocVaHocKy()
+        {
+            return cboAcademicYear.SelectedValue is int && cboSemester.SelectedValue is int;
+        }
+
+        private static bool ChuyenMonTrungHocPhan(string tenChuyenMon, string tenHocPhan)
+        {
+            return ChuanHoaTen(tenChuyenMon) == ChuanHoaTen(tenHocPhan);
+        }
+
+        private static string ChuanHoaTen(string value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return String.Empty;
+            string normalized = value.Normalize(NormalizationForm.FormD);
+            var result = new StringBuilder();
+            foreach (char c in normalized)
+                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                    result.Append(char.ToLowerInvariant(c));
+            return result.ToString().Replace('đ', 'd').Trim();
+        }
+
+        private static bool LaDesignTime()
+        {
+            return System.ComponentModel.LicenseManager.UsageMode == System.ComponentModel.LicenseUsageMode.Designtime;
+        }
+
+        private static void ShowError(string message, Exception ex)
+        {
+            MessageBox.Show(message + "\n\nChi tiết: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        // Các event handler này đang được WinForms Designer tham chiếu.
+        private void lblLecturer_Click(object sender, EventArgs e) { }
+        private void cboLecturer_SelectedIndexChanged(object sender, EventArgs e) { }
+        private void lblPeriods_Click(object sender, EventArgs e) { }
+        private void lblAssignmentList_Click(object sender, EventArgs e) { }
+        private void pnlAssignmentInfo_Paint(object sender, PaintEventArgs e) { }
     }
 }
