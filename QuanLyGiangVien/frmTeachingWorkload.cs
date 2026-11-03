@@ -1,4 +1,6 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -13,21 +15,19 @@ namespace QuanLyGiangVien
         {
             InitializeComponent();
             Load += frmTeachingWorkload_Load;
-            btnThongKe.Click += btnThongKe_Click;
-            btnLamMoi.Click += btnLamMoi_Click;
         }
 
         private void frmTeachingWorkload_Load(object sender, EventArgs e)
         {
-            if (LicenseManagerIsDesignTime()) return;
+            if (LicenseManager.UsageMode == LicenseUsageMode.Designtime) return;
 
+            dangNapBoLoc = true;
             try
             {
                 using (var db = new QuanLyGiangVienDataContext())
                 {
-                    dangNapBoLoc = true;
-
                     cboNamHoc.DataSource = db.NAM_HOCs
+                        .Where(x => x.TrangThai)
                         .OrderByDescending(x => x.TuNam)
                         .Select(x => new { x.MaNamHoc, x.TenNamHoc })
                         .ToList();
@@ -41,84 +41,105 @@ namespace QuanLyGiangVien
                     cboHocKy.DisplayMember = "TenHocKy";
                     cboHocKy.ValueMember = "MaHocKy";
 
-                    var khoa = db.KHOAs.OrderBy(x => x.TenKhoa)
-                        .Select(x => new { x.MaKhoa, x.TenKhoa }).ToList();
-                    cboKhoa.Items.Clear();
-                    cboKhoa.Items.Add(new KhoaFilterItem { MaKhoa = 0, TenKhoa = "Tất cả khoa" });
-                    foreach (var item in khoa)
-                        cboKhoa.Items.Add(new KhoaFilterItem { MaKhoa = item.MaKhoa, TenKhoa = item.TenKhoa });
+                    var khoaItems = db.KHOAs
+                        .Where(x => x.TrangThai)
+                        .OrderBy(x => x.TenKhoa)
+                        .Select(x => new { x.MaKhoa, x.TenKhoa })
+                        .ToList();
+                    var filters = new List<KhoaFilterItem>
+                    {
+                        new KhoaFilterItem { MaKhoa = 0, TenKhoa = "Tất cả khoa" }
+                    };
+                    filters.AddRange(khoaItems.Select(x => new KhoaFilterItem
+                    {
+                        MaKhoa = x.MaKhoa,
+                        TenKhoa = x.TenKhoa
+                    }));
+                    cboKhoa.DataSource = filters;
                     cboKhoa.DisplayMember = "TenKhoa";
                     cboKhoa.ValueMember = "MaKhoa";
-                    cboKhoa.SelectedIndex = 0;
-
-                    if (cboNamHoc.Items.Count > 0) cboNamHoc.SelectedIndex = 0;
-                    if (cboHocKy.Items.Count > 0) cboHocKy.SelectedIndex = 0;
                 }
 
-                dangNapBoLoc = false;
-                LoadWorkload();
+                if (cboNamHoc.Items.Count > 0) cboNamHoc.SelectedIndex = 0;
+                if (cboHocKy.Items.Count > 0) cboHocKy.SelectedIndex = 0;
+                if (cboKhoa.Items.Count > 0) cboKhoa.SelectedIndex = 0;
             }
             catch (Exception ex)
             {
-                dangNapBoLoc = false;
-                MessageBox.Show("Không tải được dữ liệu khối lượng giảng dạy. Hãy kiểm tra SQL Server và chuỗi kết nối trong App.config.\n\nChi tiết: " + ex.Message,
-                    "Lỗi kết nối", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                HienThiLoi("Không tải được danh sách bộ lọc. Hãy kiểm tra SQL Server và chuỗi kết nối trong App.config.", ex);
             }
+            finally
+            {
+                dangNapBoLoc = false;
+            }
+
+            LoadWorkload();
         }
 
         private void LoadWorkload()
         {
-            if (dangNapBoLoc || cboNamHoc.SelectedValue == null || cboHocKy.SelectedValue == null) return;
+            dgvTeachingWorkload.Rows.Clear();
+            if (cboNamHoc.SelectedValue == null || cboHocKy.SelectedValue == null) return;
+
+            int maNamHoc;
+            int maHocKy;
+            if (!int.TryParse(Convert.ToString(cboNamHoc.SelectedValue), out maNamHoc) ||
+                !int.TryParse(Convert.ToString(cboHocKy.SelectedValue), out maHocKy)) return;
+
+            int maKhoa = 0;
+            var khoa = cboKhoa.SelectedItem as KhoaFilterItem;
+            if (khoa != null) maKhoa = khoa.MaKhoa;
 
             try
             {
-                int maNamHoc = Convert.ToInt32(cboNamHoc.SelectedValue);
-                int maHocKy = Convert.ToInt32(cboHocKy.SelectedValue);
-                int maKhoa = cboKhoa.SelectedItem is KhoaFilterItem
-                    ? ((KhoaFilterItem)cboKhoa.SelectedItem).MaKhoa : 0;
-
                 using (var db = new QuanLyGiangVienDataContext())
                 {
-                    // Chỉ dùng LINQ to SQL: lấy các phân công thuộc năm học/học kỳ đã chọn,
-                    // sau đó gom theo giảng viên và cộng số tiết.
-                    var assignments = db.PHAN_CONG_GIANG_DAYs
-                        .Where(x => x.LOP_HOC_PHAN.MaNamHoc == maNamHoc
-                                 && x.LOP_HOC_PHAN.MaHocKy == maHocKy);
-
-                    if (maKhoa > 0)
-                        assignments = assignments.Where(x => x.GIANG_VIEN.BO_MON.MaKhoa == maKhoa);
-
-                    var totals = assignments
-                        .GroupBy(x => new
+                    // Đọc danh sách giảng viên trước để vẫn hiện người có tổng số tiết bằng 0.
+                    var lecturers = db.GIANG_VIENs
+                        .Where(x => x.TrangThai && (maKhoa == 0 || x.BO_MON.MaKhoa == maKhoa))
+                        .OrderBy(x => x.HoTen)
+                        .Select(x => new
                         {
                             x.MaGV,
-                            x.GIANG_VIEN.HoTen,
-                            TenKhoa = x.GIANG_VIEN.BO_MON.KHOA.TenKhoa
+                            x.HoTen,
+                            TenKhoa = x.BO_MON.KHOA.TenKhoa
                         })
-                        .Select(g => new
-                        {
-                            g.Key.MaGV,
-                            g.Key.HoTen,
-                            g.Key.TenKhoa,
-                            TongTiet = g.Sum(x => x.SoTiet)
-                        })
-                        .OrderBy(x => x.MaGV)
                         .ToList();
 
-                    dgvTeachingWorkload.Rows.Clear();
-                    foreach (var row in totals)
+                    var assignments = db.PHAN_CONG_GIANG_DAYs
+                        .Where(x => x.LOP_HOC_PHAN.TrangThai &&
+                                    x.LOP_HOC_PHAN.MaNamHoc == maNamHoc &&
+                                    x.LOP_HOC_PHAN.MaHocKy == maHocKy &&
+                                    x.GIANG_VIEN.TrangThai &&
+                                    (maKhoa == 0 || x.GIANG_VIEN.BO_MON.MaKhoa == maKhoa))
+                        .Select(x => new { x.MaGV, x.SoTiet })
+                        .ToList();
+
+                    var totals = assignments
+                        .GroupBy(x => x.MaGV)
+                        .ToDictionary(g => g.Key, g => g.Sum(x => x.SoTiet));
+
+                    foreach (var lecturer in lecturers)
                     {
-                        string trangThai = row.TongTiet > DinhMucTietMoiHocKy ? "Vượt"
-                            : row.TongTiet < DinhMucTietMoiHocKy ? "Thiếu" : "Đạt";
-                        dgvTeachingWorkload.Rows.Add(row.MaGV, row.HoTen, row.TenKhoa,
-                            row.TongTiet, DinhMucTietMoiHocKy, trangThai);
+                        int tongTiet;
+                        if (!totals.TryGetValue(lecturer.MaGV, out tongTiet)) tongTiet = 0;
+
+                        string trangThai = tongTiet > DinhMucTietMoiHocKy ? "Vượt định mức"
+                            : tongTiet < DinhMucTietMoiHocKy ? "Chưa đủ định mức" : "Đạt định mức";
+
+                        dgvTeachingWorkload.Rows.Add(
+                            lecturer.MaGV,
+                            lecturer.HoTen,
+                            lecturer.TenKhoa,
+                            tongTiet,
+                            DinhMucTietMoiHocKy,
+                            trangThai);
                     }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Không tính được khối lượng giảng dạy.\n\nChi tiết: " + ex.Message,
-                    "Lỗi dữ liệu", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                HienThiLoi("Không tính được khối lượng giảng dạy.", ex);
             }
         }
 
@@ -137,26 +158,41 @@ namespace QuanLyGiangVien
             LoadWorkload();
         }
 
-        private static bool LicenseManagerIsDesignTime()
+        private void cboNamHoc_SelectedIndexChanged(object sender, EventArgs e)
         {
-            return System.ComponentModel.LicenseManager.UsageMode ==
-                System.ComponentModel.LicenseUsageMode.Designtime;
+            if (!dangNapBoLoc) LoadWorkload();
         }
 
-        private void dgvTeachingWorkload_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
+            if (!dangNapBoLoc) LoadWorkload();
         }
 
-        // Giữ nguyên các event handler do WinForms Designer đang tham chiếu.
+        private void cboKhoa_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (!dangNapBoLoc) LoadWorkload();
+        }
+
+        private static void HienThiLoi(string thongBao, Exception ex)
+        {
+            MessageBox.Show(thongBao + "\n\nChi tiết: " + ex.Message,
+                "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        // Giữ các handler click do WinForms Designer tham chiếu.
+        private void dgvTeachingWorkload_CellContentClick(object sender, DataGridViewCellEventArgs e) { }
         private void lblNamHoc_Click(object sender, EventArgs e) { }
-        private void cboNamHoc_SelectedIndexChanged(object sender, EventArgs e) { }
-        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e) { }
         private void lblHocKy_Click(object sender, EventArgs e) { }
 
         private sealed class KhoaFilterItem
         {
             public int MaKhoa { get; set; }
             public string TenKhoa { get; set; }
+        }
+
+        private void dgvTeachingWorkload_CellContentClick_1(object sender, DataGridViewCellEventArgs e)
+        {
+
         }
     }
 }

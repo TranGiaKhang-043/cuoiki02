@@ -89,6 +89,7 @@ namespace QuanLyGiangVien
 
         private void LoadAssignments()
         {
+            dgvAssignments.Rows.Clear();
             if (!DaChonNamHocVaHocKy()) return;
             try
             {
@@ -107,7 +108,6 @@ namespace QuanLyGiangVien
                             x.SoTiet
                         })
                         .ToList();
-                    dgvAssignments.Rows.Clear();
                     foreach (var row in rows)
                         dgvAssignments.Rows.Add(row.MaPhanCong, row.GiangVien, row.LopHocPhan,
                             row.HocKy, row.SoTiet, "Đã phân công");
@@ -139,6 +139,27 @@ namespace QuanLyGiangVien
             int maLopHP = Convert.ToInt32(cboCourseClass.SelectedValue);
             try
             {
+                // Chuyên môn lưu dưới dạng tên tự do, không có khóa liên kết tới học phần.
+                // Cảnh báo để người dùng xác nhận khi cách đặt tên môn/chuyên môn khác nhau.
+                using (var dbKiemTra = new QuanLyGiangVienDataContext())
+                {
+                    var tenHocPhan = dbKiemTra.LOP_HOC_PHANs
+                        .Where(x => x.MaLopHP == maLopHP)
+                        .Select(x => x.HOC_PHAN.TenHocPhan)
+                        .SingleOrDefault();
+                    var chuyenMons = dbKiemTra.GIANG_VIEN_CHUYEN_MONs
+                        .Where(x => x.MaGV == maGV && x.CHUYEN_MON.TrangThai)
+                        .Select(x => x.CHUYEN_MON.TenChuyenMon)
+                        .ToList();
+                    if (tenHocPhan != null && !chuyenMons.Any(x => ChuyenMonTrungHocPhan(x, tenHocPhan)))
+                    {
+                        var answer = MessageBox.Show(
+                            "Chưa tìm thấy tên chuyên môn trùng với học phần '" + tenHocPhan + "'. Bạn vẫn muốn tiếp tục?",
+                            "Xác nhận chuyên môn", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                        if (answer != DialogResult.Yes) return;
+                    }
+                }
+
                 var options = new TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.Serializable };
                 using (var scope = new TransactionScope(TransactionScopeOption.Required, options))
                 using (var db = new QuanLyGiangVienDataContext())
@@ -152,12 +173,9 @@ namespace QuanLyGiangVien
                     if (db.PHAN_CONG_GIANG_DAYs.Any(x => x.MaGV == maGV && x.MaLopHP == maLopHP))
                         throw new InvalidOperationException("Giảng viên này đã được phân công lớp học phần đã chọn.");
 
-                    string tenHocPhan = lopHocPhan.HOC_PHAN.TenHocPhan;
-                    bool dungChuyenMon = db.GIANG_VIEN_CHUYEN_MONs.Where(x => x.MaGV == maGV && x.CHUYEN_MON.TrangThai)
-                        .Select(x => x.CHUYEN_MON.TenChuyenMon).ToList()
-                        .Any(tenChuyenMon => ChuyenMonTrungHocPhan(tenChuyenMon, tenHocPhan));
-                    if (!dungChuyenMon)
-                        throw new InvalidOperationException("Giảng viên chưa có chuyên môn phù hợp với học phần '" + tenHocPhan + "'.");
+                    int tongTietHocPhan = lopHocPhan.HOC_PHAN.SoTietLyThuyet + lopHocPhan.HOC_PHAN.SoTietThucHanh;
+                    if (soTiet > tongTietHocPhan)
+                        throw new InvalidOperationException("Số tiết phân công không được vượt tổng số tiết của học phần (" + tongTietHocPhan + " tiết).");
 
                     int tongTietDaPhanCong = db.PHAN_CONG_GIANG_DAYs
                         .Where(x => x.MaGV == maGV && x.LOP_HOC_PHAN.MaNamHoc == maNamHoc && x.LOP_HOC_PHAN.MaHocKy == maHocKy)

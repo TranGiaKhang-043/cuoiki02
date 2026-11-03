@@ -1,4 +1,4 @@
-﻿namespace QuanLyGiangVien
+namespace QuanLyGiangVien
 {
     partial class frmTeachingWorkload
     {
@@ -81,12 +81,6 @@
             // 
             this.cboHocKy.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.cboHocKy.FormattingEnabled = true;
-            this.cboHocKy.Items.AddRange(new object[] {
-            "HK1",
-            "",
-            "HK2",
-            "",
-            "HK3"});
             this.cboHocKy.Location = new System.Drawing.Point(358, 14);
             this.cboHocKy.Name = "cboHocKy";
             this.cboHocKy.Size = new System.Drawing.Size(100, 28);
@@ -106,12 +100,11 @@
             // 
             this.cboKhoa.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.cboKhoa.FormattingEnabled = true;
-            this.cboKhoa.Items.AddRange(new object[] {
-            "Tất cả "});
             this.cboKhoa.Location = new System.Drawing.Point(565, 14);
             this.cboKhoa.Name = "cboKhoa";
             this.cboKhoa.Size = new System.Drawing.Size(150, 28);
             this.cboKhoa.TabIndex = 5;
+            this.cboKhoa.SelectedIndexChanged += new System.EventHandler(this.cboKhoa_SelectedIndexChanged);
             // 
             // btnThongKe
             // 
@@ -121,6 +114,7 @@
             this.btnThongKe.TabIndex = 6;
             this.btnThongKe.Text = "Xem thống kê";
             this.btnThongKe.UseVisualStyleBackColor = true;
+            this.btnThongKe.Click += new System.EventHandler(this.btnThongKe_Click);
             // 
             // btnLamMoi
             // 
@@ -166,7 +160,7 @@
             this.dgvTeachingWorkload.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
             this.dgvTeachingWorkload.Size = new System.Drawing.Size(1160, 550);
             this.dgvTeachingWorkload.TabIndex = 8;
-            this.dgvTeachingWorkload.CellContentClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvTeachingWorkload_CellContentClick);
+            this.dgvTeachingWorkload.CellContentClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvTeachingWorkload_CellContentClick_1);
             // 
             // colMaGV
             // 
