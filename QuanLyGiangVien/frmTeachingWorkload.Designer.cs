@@ -166,6 +166,7 @@
             this.dgvTeachingWorkload.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
             this.dgvTeachingWorkload.Size = new System.Drawing.Size(1160, 550);
             this.dgvTeachingWorkload.TabIndex = 8;
+            this.dgvTeachingWorkload.CellContentClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.dgvTeachingWorkload_CellContentClick);
             // 
             // colMaGV
             // 
